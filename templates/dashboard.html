@@ -1,0 +1,184 @@
+{% extends "base.html" %}
+
+{% block content %}
+<h2>Welcome, {{ current_user.name }} {{ current_user.surname }}</h2>
+<div class="row mt-4">
+    <div class="col-md-4">
+        <div class="card mb-4">
+            <div class="card-body text-center">
+                {% if current_user.profile_picture %}
+                <img src="{{ url_for('static', filename='profile_pics/' + current_user.profile_picture) }}" alt="Profile Picture" class="profile-picture mb-3">
+                {% else %}
+                <img src="{{ url_for('static', filename='images/default_profile.png') }}" alt="Default Profile Picture" class="profile-picture mb-3">
+                {% endif %}
+                <h5 class="card-title">{{ current_user.name }} {{ current_user.surname }}</h5>
+                <p class="card-text">Customer Code: {{ current_user.customer_code }}</p>
+                <p class="card-text">Bonus Points: {{ current_user.bonus_points }}</p>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">Recent Notifications</h5>
+            </div>
+            <div class="card-body" id="notifications-container">
+                {% if notifications %}
+                    {% for notification in notifications %}
+                    <div class="alert alert-info alert-dismissible fade show" role="alert" data-notification-id="{{ notification.id }}">
+                        <strong>{{ notification.title }}</strong>
+                        <p class="mb-0">{{ notification.message }}</p>
+                        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                    </div>
+                    {% endfor %}
+                {% else %}
+                    <p class="text-muted">No new notifications</p>
+                {% endif %}
+            </div>
+            <div id="connection-status" class="card-footer text-muted d-none">
+                <small class="text-warning">⚠️ Connection lost. Attempting to reconnect...</small>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-8">
+        <div class="card">
+            <div class="card-body">
+                <h5 class="card-title">Selected Gift</h5>
+                {% if selected_gift %}
+                <p>{{ selected_gift.name }}</p>
+                <p>Points Required: {{ selected_gift.points_required }}</p>
+                <div class="progress-circle mb-3" style="--progress: {{ (current_user.bonus_points / selected_gift.points_required) * 360 }}deg;">
+                    {{ (current_user.bonus_points / selected_gift.points_required * 100) | int }}%
+                </div>
+                <a href="{{ url_for('redeem_gift') }}" class="btn btn-primary">Redeem Gift</a>
+                {% else %}
+                <p>No gift selected. <a href="{{ url_for('gift_selection') }}">Choose a gift</a></p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    let eventSource;
+    const MAX_RETRY_TIME = 16000;  // Maximum retry time in milliseconds
+    let retryTime = 1000;  // Initial retry time in milliseconds
+    const connectionStatus = document.getElementById('connection-status');
+    
+    function showConnectionStatus(show) {
+        connectionStatus.classList.toggle('d-none', !show);
+    }
+
+    function connectSSE() {
+        // Close existing connection if any
+        if (eventSource) {
+            eventSource.close();
+        }
+
+        // Create new EventSource connection with proper error handling
+        eventSource = new EventSource("{{ url_for('sse.stream', channel='user_' + current_user.id|string) }}");
+        
+        // Handle successful connection
+        eventSource.onopen = function() {
+            console.log('SSE connection established');
+            showConnectionStatus(false);
+            retryTime = 1000;  // Reset retry time on successful connection
+        };
+
+        // Handle connection errors
+        eventSource.onerror = function(event) {
+            console.error('SSE connection error:', event);
+            eventSource.close();
+            showConnectionStatus(true);
+            
+            // Implement exponential backoff for reconnection
+            setTimeout(() => {
+                retryTime = Math.min(retryTime * 2, MAX_RETRY_TIME);
+                connectSSE();
+            }, retryTime);
+        };
+
+        // Handle notification events
+        eventSource.addEventListener('notification', function(event) {
+            try {
+                const notification = JSON.parse(event.data);
+                const container = document.getElementById('notifications-container');
+                
+                // Create notification element
+                const alertDiv = document.createElement('div');
+                alertDiv.className = 'alert alert-info alert-dismissible fade show';
+                alertDiv.setAttribute('role', 'alert');
+                alertDiv.setAttribute('data-notification-id', notification.id);
+                
+                // Sanitize and format notification content
+                const title = notification.title ? notification.title.replace(/[<>]/g, '') : 'New Notification';
+                const message = notification.message ? notification.message.replace(/[<>]/g, '') : '';
+                
+                alertDiv.innerHTML = `
+                    <strong>${title}</strong>
+                    <p class="mb-0">${message}</p>
+                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                `;
+                
+                // Add notification to container
+                if (container.firstChild) {
+                    container.insertBefore(alertDiv, container.firstChild);
+                } else {
+                    container.appendChild(alertDiv);
+                }
+
+                // Remove "No new notifications" message if it exists
+                const noNotificationsMsg = container.querySelector('.text-muted');
+                if (noNotificationsMsg) {
+                    noNotificationsMsg.remove();
+                }
+
+                // Update bonus points if included in notification
+                if (notification.bonus_points !== undefined) {
+                    const bonusPointsElement = document.querySelector('.card-text:contains("Bonus Points:")');
+                    if (bonusPointsElement) {
+                        bonusPointsElement.textContent = `Bonus Points: ${notification.bonus_points}`;
+                    }
+                }
+            } catch (error) {
+                console.error('Error processing notification:', error);
+            }
+        });
+    }
+
+    // Initialize SSE connection
+    connectSSE();
+
+    // Handle notification dismissal
+    document.addEventListener('closed.bs.alert', function(event) {
+        const notification = event.target;
+        const notificationId = notification.getAttribute('data-notification-id');
+        
+        if (notificationId) {
+            fetch(`/notifications/mark_read/${notificationId}`)
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error('Network response was not ok');
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    console.log('Notification marked as read:', data);
+                })
+                .catch(error => {
+                    console.error('Error marking notification as read:', error);
+                });
+        }
+    });
+
+    // Clean up on page unload
+    window.addEventListener('beforeunload', function() {
+        if (eventSource) {
+            eventSource.close();
+        }
+    });
+});
+</script>
+{% endblock %}

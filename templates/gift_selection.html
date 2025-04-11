@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+
+{% block content %}
+<h2>Gift Selection</h2>
+<div class="row">
+    {% for gift in gifts %}
+    <div class="col-md-4 mb-4">
+        <div class="card">
+            <div class="card-body">
+                <h5 class="card-title">{{ gift.name }}</h5>
+                <p class="card-text">{{ gift.description }}</p>
+                <p class="card-text">Points required: {{ gift.points_required }}</p>
+                <a href="{{ url_for('select_gift', gift_id=gift.id) }}" class="btn btn-primary">Select Gift</a>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% endblock %}

@@ -1,0 +1,18 @@
+{% extends 'admin/base.html' %}
+
+{% block head_tail %}
+  {{ super() }}
+  <style>
+    .navbar-nav > li > a.logout-btn {
+      color: var(--bs-danger);
+    }
+  </style>
+{% endblock %}
+
+{% block access_control %}
+{% if current_user.is_authenticated %}
+  <ul class="nav navbar-nav navbar-right">
+    <li><a href="{{ url_for('logout') }}" class="logout-btn">Logout</a></li>
+  </ul>
+{% endif %}
+{% endblock %}

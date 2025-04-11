@@ -1,0 +1,19 @@
+/* Add any custom styles here */
+.profile-picture {
+    width: 150px;
+    height: 150px;
+    border-radius: 50%;
+    object-fit: cover;
+}
+
+.progress-circle {
+    width: 150px;
+    height: 150px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 24px;
+    font-weight: bold;
+    background: conic-gradient(var(--bs-primary) var(--progress), var(--bs-secondary) 0deg);
+}

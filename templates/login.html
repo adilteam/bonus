@@ -1,0 +1,204 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container mt-5">
+    <div class="row justify-content-center">
+        <div class="col-md-6 col-lg-5">
+            <div class="card shadow">
+                <div class="card-body p-4">
+                    <h2 class="text-center mb-4">Giriş Yap</h2>
+                    
+                    <!-- Geleneksel Giriş Formu -->
+                    <form method="POST" action="{{ url_for('login') }}">
+                        {{ form.hidden_tag() }}
+                        
+                        <div class="mb-3">
+                            {{ form.identifier.label(class="form-label") }}
+                            {{ form.identifier(class="form-control", id="loginEmail", placeholder="Email veya Kullanıcı Kodu") }}
+                        </div>
+                        
+                        <div class="mb-3">
+                            {{ form.password.label(class="form-label") }}
+                            <div class="input-group">
+                                {{ form.password(class="form-control", id="loginPassword", placeholder="Şifre") }}
+                                <button class="btn btn-outline-secondary" type="button" id="togglePassword">
+                                    <i class="bi bi-eye"></i>
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <div class="d-grid gap-2">
+                            <button type="submit" class="btn btn-primary">
+                                <i class="bi bi-box-arrow-in-right"></i> Giriş Yap
+                            </button>
+                            
+                            <div class="text-center my-3">- VEYA -</div>
+                            
+                            <button type="button" class="btn btn-success" id="faceLoginBtn">
+                                <i class="bi bi-camera"></i> Yüz Tanıma ile Giriş
+                            </button>
+                        </div>
+                    </form>
+                    
+                    <!-- Yüz Tanıma Sonuç Mesajı -->
+                    <div id="faceLoginResult" class="alert mt-3" style="display:none;"></div>
+                </div>
+                
+                <div class="card-footer text-center">
+                    <small>Hesabınız yok mu? <a href="{{ url_for('register') }}">Kayıt Olun</a></small>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Yüz Tanıma Modalı -->
+<div class="modal fade" id="faceLoginModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Yüz Tanıma ile Giriş</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body text-center">
+                <div id="cameraContainer">
+                    <video id="faceCamera" width="100%" autoplay playsinline></video>
+                    <canvas id="faceCanvas" style="display:none;"></canvas>
+                </div>
+                <div class="mt-3">
+                    <p class="text-muted">Lütfen kameraya bakın</p>
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Yükleniyor...</span>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer justify-content-center">
+                <button type="button" class="btn btn-primary w-100" id="captureFaceBtn">Yakala</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Şifre göster/gizle
+    const togglePassword = document.getElementById('togglePassword');
+    const passwordInput = document.getElementById('loginPassword');
+    togglePassword.addEventListener('click', function() {
+        const type = passwordInput.getAttribute('type') === 'password' ? 'text' : 'password';
+        passwordInput.setAttribute('type', type);
+        this.innerHTML = type === 'password' ? '<i class="bi bi-eye"></i>' : '<i class="bi bi-eye-slash"></i>';
+    });
+    
+    // Yüz tanıma işlemleri
+    const faceLoginBtn = document.getElementById('faceLoginBtn');
+    const faceLoginModal = new bootstrap.Modal('#faceLoginModal');
+    const resultDiv = document.getElementById('faceLoginResult');
+    const video = document.getElementById('faceCamera');
+    const canvas = document.getElementById('faceCanvas');
+    const ctx = canvas.getContext('2d');
+    let stream = null;
+    
+    faceLoginBtn.addEventListener('click', async function() {
+        const email = document.getElementById('loginEmail').value;
+        if (!email) {
+            showResult('Lütfen önce email adresinizi girin', 'danger');
+            return;
+        }
+        
+        try {
+            faceLoginModal.show();
+            stream = await navigator.mediaDevices.getUserMedia({ 
+                video: { 
+                    width: 1280, 
+                    height: 720,
+                    facingMode: 'user' 
+                } 
+            });
+            video.srcObject = stream;
+            
+            document.getElementById('captureFaceBtn').onclick = async function() {
+                try {
+                    // Fotoğraf çek
+                    canvas.width = video.videoWidth;
+                    canvas.height = video.videoHeight;
+                    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                    
+                    // Modalı kapat
+                    faceLoginModal.hide();
+                    if (stream) {
+                        stream.getTracks().forEach(track => track.stop());
+                    }
+                    
+                    showResult('Yüzünüz doğrulanıyor...', 'info');
+                    
+                    // Sunucuya gönder
+                    const blob = await new Promise(resolve => {
+                        canvas.toBlob(resolve, 'image/jpeg', 0.9);
+                    });
+                    
+                    const formData = new FormData();
+                    formData.append('email', email);
+                    formData.append('image', blob, 'face.jpg');
+                    
+                    const response = await fetch('/login_with_face', {
+                        method: 'POST',
+                        body: formData
+                    });
+                    
+                    const result = await response.json();
+                    
+                    if (result.success) {
+                        showResult('Giriş başarılı! Yönlendiriliyorsunuz...', 'success');
+                        setTimeout(() => {
+                            window.location.href = result.redirect;
+                        }, 1500);
+                    } else {
+                        showResult(result.error || 'Yüz doğrulama başarısız', 'danger');
+                    }
+                } catch (error) {
+                    console.error('Hata:', error);
+                    showResult('Bir hata oluştu: ' + error.message, 'danger');
+                }
+            };
+            
+        } catch (error) {
+            console.error('Kamera hatası:', error);
+            showResult('Kameraya erişilemedi: ' + error.message, 'danger');
+            faceLoginModal.hide();
+        }
+    });
+    
+    // Modal kapatıldığında kamerayı kapat
+    faceLoginModal._element.addEventListener('hidden.bs.modal', function() {
+        if (stream) {
+            stream.getTracks().forEach(track => track.stop());
+        }
+    });
+    
+    function showResult(message, type) {
+        resultDiv.style.display = 'block';
+        resultDiv.className = `alert alert-${type} mt-3`;
+        resultDiv.textContent = message;
+    }
+});
+</script>
+
+<style>
+#cameraContainer {
+    position: relative;
+    width: 100%;
+    border-radius: 8px;
+    overflow: hidden;
+    background: #f8f9fa;
+    min-height: 300px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+#faceCamera {
+    max-width: 100%;
+    max-height: 300px;
+}
+</style>
+{% endblock %}
